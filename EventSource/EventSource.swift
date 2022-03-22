@@ -190,6 +190,69 @@ open class EventSource: NSObject, EventSourceProtocol, URLSessionDataDelegate {
         self.headers.forEach { newRequest.setValue($1, forHTTPHeaderField: $0) }
         completionHandler(newRequest)
     }
+    
+    public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        
+        // Look for specific authentication challenges and dispatch those to various helper methods.
+        //
+        // IMPORTANT: It's critical that, if you get a challenge you weren't expecting,
+        // you resolve that challenge with `.performDefaultHandling`.
+        switch (challenge.protectionSpace.authenticationMethod) {
+            case (NSURLAuthenticationMethodServerTrust):
+                self.didReceive(serverTrustChallenge: challenge, completionHandler: completionHandler)
+            case (NSURLAuthenticationMethodClientCertificate):
+                self.didReceive(clientIdentityChallenge: challenge, completionHandler: completionHandler)
+            default:
+                completionHandler(.performDefaultHandling, nil)
+        }
+    }
+    
+    private func didReceive(serverTrustChallenge challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        
+        if let trust: SecTrust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            print("Could not get server trust. Cancelling authentication challenge!")
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+        
+        /*
+         TODO: Quick test without using self-signed cert
+        var trust: SecTrust? = nil
+        var isTrusted = false
+        
+        // We override server trust evaluation (`NSURLAuthenticationMethodServerTrust`) to allow the
+        // server to use a custom root certificate (`MouseCA.cer`).
+        //let customRoot = Bundle.main.certificate(named: "MouseCA")
+        let certPaths: [String] = Bundle.main.paths(forResourcesOfType: "cer", inDirectory: nil)
+        
+        for certPath in certPaths {
+            let certFileUrl = URL(fileURLWithPath: certPath)
+            let cerURL = certFileUrl(forResource: "ehex_local", withExtension: "cer")!
+            let cerData = try! Data(contentsOf: cerURL)
+            let cer = SecCertificateCreateWithData(nil, cerData as CFData)!
+
+            let customRoot = certFileUrl.deletingPathExtension().lastPathComponent
+            trust = challenge.protectionSpace.serverTrust!
+            isTrusted = ((trust?.evaluateAllowing(rootCertificates: [customRoot])) != nil)
+            if isTrusted { break }
+        }
+        
+        if isTrusted,
+        let trust = trust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+        */
+
+    }
+    
+    private func didReceive(clientIdentityChallenge challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        if let identity = challenge.proposedCredential?.identity {
+            completionHandler(.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .forSession))
+        }
+    }
 }
 
 internal extension EventSource {
